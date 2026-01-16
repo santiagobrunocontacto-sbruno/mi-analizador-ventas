@@ -13,59 +13,55 @@ if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
         
-        # Detector de modelo automático
-        modelos_visibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in modelos_visibles else modelos_visibles[0]
+        # Detector de modelo automático para evitar el error 404
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        model_name = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in available_models else available_models[0]
         model = genai.GenerativeModel(model_name)
         
         # Leer el archivo completo
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
         
-        # --- LIMPIEZA AGRESIVA DE NÚMEROS ---
-        if 'Venta' in df.columns:
-            # 1. Convertimos a string y sacamos espacios
-            df['Venta_Aux'] = df['Venta'].astype(str).str.strip()
-            # 2. Sacamos los puntos (que en Arg son miles)
-            df['Venta_Aux'] = df['Venta_Aux'].str.replace('.', '', regex=False)
-            # 3. Cambiamos la coma por punto (para que Python lo entienda como decimal)
-            df['Venta_Aux'] = df['Venta_Aux'].str.replace(',', '.', regex=False)
-            # 4. Convertimos a número real
-            df['Venta_Numerica'] = pd.to_numeric(df['Venta_Aux'], errors='coerce').fillna(0)
-            
-            total_calculado = df['Venta_Numerica'].sum()
-            
-            # Buscamos la descripción más vendida (basado en cantidad de veces que aparece)
-            desc_top = df['Descripción'].value_counts().idxmax() if 'Descripción' in df.columns else "N/A"
-            
-            st.success(f"✅ Total Facturado Real: ${total_calculado:,.2f}")
+        # --- LIMPIEZA DE DATOS ---
+        # 1. Buscamos la columna de guita (puede llamarse 'Venta' o 'Ventas')
+        col_venta = next((c for c in df.columns if 'venta' in c.lower()), None)
+        
+        total_final = 0
+        if col_venta:
+            # Limpieza: quitamos puntos (miles), cambiamos comas por puntos (decimales)
+            df['Venta_Calculo'] = df[col_venta].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+            df['Venta_Calculo'] = pd.to_numeric(df['Venta_Calculo'], errors='coerce').fillna(0)
+            total_final = df['Venta_Calculo'].sum()
+            st.success(f"📈 Total detectado matemáticamente: ${total_final:,.2f}")
         else:
-            total_calculado = 0
-            st.warning("⚠️ No se encontró la columna 'Venta'")
+            st.warning("No encontré una columna llamada 'Venta'.")
 
-        st.write("### Vista previa de tus datos")
+        st.write("### Vista previa de tus datos:")
         st.dataframe(df.head())
 
-        pregunta = st.text_input("¿Qué querés saber sobre tus ventas?")
+        pregunta = st.text_input("¿Qué querés saber?")
         
         if pregunta:
-            # Le pasamos a la IA los datos masticados para que no invente ceros
+            # En lugar de mandarle todas las filas, le mandamos un RESUMEN
+            # Esto evita que la IA se sature y tire cualquier número
+            top_clientes = df['Razón social'].value_counts().head(5).to_string() if 'Razón social' in df.columns else ""
+            
             prompt = f"""
-            Actuá como experto contable. 
-            DATOS CLAVE:
-            - Total de Ventas: {total_calculado}
-            - Registros totales: {len(df)}
-            - Columnas: {list(df.columns)}
+            Actuá como un experto contable. 
+            DATOS REALES DEL ARCHIVO:
+            - Cantidad de operaciones: {len(df)}
+            - TOTAL FACTURADO (Suma real): {total_final}
+            - Principales Clientes: {top_clientes}
             
             Pregunta: {pregunta}
             
-            Responde con los números que te di arriba. Si preguntan por la descripción más vendida, 
-            analizá los datos y respondé directamente.
+            Responde basado ÚNICAMENTE en los números de arriba. No digas que el total es 0, porque ya sabemos que es {total_final}.
             """
-            with st.spinner('Procesando...'):
+            
+            with st.spinner('Analizando...'):
                 response = model.generate_content(prompt)
                 st.info(response.text)
                     
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error técnico: {e}")
 else:
-    st.info("💡 Pegá tu API Key y subí el archivo para empezar.")
+    st.info("💡 Pegá tu API Key y cargá el archivo.")
