@@ -2,39 +2,32 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# Configuración visual de la App
-st.set_page_config(page_title="Mi Analizador de Ventas", layout="wide")
-st.title("📊 Consultor de Datos Inteligente")
+st.set_page_config(page_title="Consultor de Ventas", layout="wide")
+st.title("📊 Mi Analizador de Datos")
 
-# 1. Configuración de la API Key en la barra lateral
+# Barra lateral
 with st.sidebar:
     api_key = st.text_input("Ingresá tu Google API Key:", type="password")
-    archivo_subido = st.file_uploader("Subí tu archivo CSV", type=["csv"])
+    uploaded_file = st.file_uploader("Subí tu archivo CSV", type=["csv"])
 
-if api_key and archivo_subido:
+if api_key and uploaded_file:
     genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
-    # 2. Carga de datos
-    df = pd.read_csv(archivo_subido, sep=';', encoding='latin1')
-    df.columns = df.columns.str.strip()
-    
+    df = pd.read_csv(uploaded_file)
     st.write("### Vista previa de tus datos:")
     st.dataframe(df.head())
 
-    # 3. Chat con los datos
-    pregunta = st.text_input("¿Qué querés saber de tus ventas?")
+    pregunta = st.text_input("¿Qué querés saber?")
     
     if pregunta:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"Tenés este DataFrame 'df' con columnas: {df.columns.tolist()}. Pregunta: {pregunta}. Responde SOLO con el código Python/Pandas para obtener el resultado."
+        # Aquí le damos instrucciones ultra claras a la IA
+        prompt = f"Actuá como un experto contable. Analizá estos datos: {df.to_string(index=False)}. Pregunta: {pregunta}. Respondé de forma breve y clara."
         
         try:
             response = model.generate_content(prompt)
-            codigo = response.text.replace('```python', '').replace('```', '').strip()
-            
-            # Ejecutamos el código y mostramos el resultado
-            resultado = eval(codigo)
-            st.success(f"**Resultado:** {resultado}")
-            
+            st.success(response.text)
         except Exception as e:
-            st.error(f"Hubo un error al procesar la pregunta. Probá ser más específico.")
+            st.error(f"Error de la IA: {e}")
+else:
+    st.warning("Falta la API Key o el archivo CSV.")
