@@ -13,8 +13,8 @@ with st.sidebar:
 if api_key and uploaded_file:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    df = pd.read_csv(uploaded_file, encoding='latin-1')
+
+    df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
     st.write("### Vista previa de tus datos:")
     st.dataframe(df.head())
 
