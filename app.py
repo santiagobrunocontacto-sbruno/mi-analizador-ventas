@@ -6,57 +6,57 @@ import google.generativeai as genai
 st.set_page_config(page_title="Consultor de Ventas", layout="wide")
 st.title("📊 Mi Analizador de Datos")
 
-# Barra lateral para carga de datos
+# Barra lateral
 with st.sidebar:
     api_key = st.text_input("Ingresá tu Google API Key:", type="password")
     uploaded_file = st.file_uploader("Subí tu archivo CSV", type=["csv"])
 
-# Lógica principal
 if api_key and uploaded_file:
     try:
-        # Configurar la IA con el nombre de modelo más compatible
+        # CONFIGURACIÓN REFORZADA
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro')
         
-        # Leer el archivo con detección automática
+        # Probamos con el nombre de modelo más estándar de todos
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Leer el archivo
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
         
         st.write("### Vista previa de tus datos:")
         st.dataframe(df.head())
 
-        # Caja de preguntas
         pregunta = st.text_input("¿Qué querés saber sobre tus ventas?")
         
         if pregunta:
-            # Le pasamos los nombres de las columnas para que no se pierda
+            # Simplificamos el contexto para que no pese tanto
             columnas = ", ".join(df.columns.tolist())
-            datos_contexto = df.head(50).to_string(index=False)
+            datos_muestra = df.head(30).to_string(index=False)
             
             prompt = f"""
-            Actuá como un experto contable. 
-            Las columnas de este archivo son: {columnas}.
-            Aquí tenés una muestra de los datos:
-            {datos_contexto}
+            Actuá como un analista de datos. 
+            Columnas disponibles: {columnas}
+            Datos:
+            {datos_muestra}
             
-            Pregunta del usuario: {pregunta}
-            
-            Instrucción: Si el usuario pregunta por ventas o totales y no ves una columna llamada 'Venta', buscá la columna que parezca tener los montos (como 'Importe', 'Total' o 'Precio'). Respondé de forma clara en español.
+            Pregunta: {pregunta}
+            Responde en español de forma concisa.
             """
             
-            with st.spinner('La IA está analizando tus datos...'):
+            with st.spinner('Analizando...'):
                 try:
+                    # USAMOS EL MÉTODO MÁS COMPATIBLE
                     response = model.generate_content(prompt)
                     st.success(response.text)
                 except Exception as e:
-                    # Si falla gemini-pro, intentamos con la versión flash pero con el nombre alternativo
+                    # SEGUNDO INTENTO CON NOMBRE ALTERNATIVO SI FALLA EL PRIMERO
                     try:
-                        model_alt = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+                        model_alt = genai.GenerativeModel('models/gemini-pro')
                         response = model_alt.generate_content(prompt)
                         st.success(response.text)
                     except:
-                        st.error(f"Error de conexión con Google: {e}")
+                        st.error("Google no reconoce el modelo. Revisá que tu API Key sea correcta y esté activa.")
                     
     except Exception as e:
-        st.error(f"Error al leer el archivo: {e}")
+        st.error(f"Error al procesar: {e}")
 else:
-    st.info("💡 Por favor, ingresá tu API Key y subí un archivo para comenzar.")
+    st.info("💡 Ingresá tu API Key y subí el archivo para empezar.")
