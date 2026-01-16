@@ -12,32 +12,36 @@ with st.sidebar:
 if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # Leemos TODO el archivo
+        # 1. DETECTOR AUTOMÁTICO DE MODELO (Clave para que no de error 404)
+        # Esto busca qué modelos tenés activos (v2.5, v1.5, etc) y elige el mejor
+        modelos_visibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # Si encuentra el 2.5 que vimos en tu foto, lo usa. Si no, el primero que haya.
+        model_name = 'models/gemini-2.5-flash' if 'models/gemini-2.5-flash' in modelos_visibles else modelos_visibles[0]
+        model = genai.GenerativeModel(model_name)
+        
+        # 2. LECTURA Y LIMPIEZA MATEMÁTICA
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
         
-        # LIMPIEZA DE NÚMEROS: Intentamos convertir la columna 'Venta' a número real
         if 'Venta' in df.columns:
-            # Quitamos puntos de miles y cambiamos comas por puntos decimales
+            # Limpiamos los números: sacamos puntos y cambiamos coma por punto
             df['Venta_Limpia'] = df['Venta'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
             df['Venta_Limpia'] = pd.to_numeric(df['Venta_Limpia'], errors='coerce').fillna(0)
-            total_real = df['Venta_Limpia'].sum()
+            total_facturado = df['Venta_Limpia'].sum()
+            st.success(f"✅ SISTEMA: Total Facturado Real = ${total_facturado:,.2f}")
         else:
-            total_real = "Columna 'Venta' no encontrada"
+            total_facturado = "No encontrado"
+            st.warning("⚠️ No veo la columna 'Venta'. Revisá el nombre en el Excel.")
 
-        st.write(f"### Datos cargados con éxito")
-        st.write(f"**Total calculado por sistema:** ${total_real:,.2f}" if isinstance(total_real, float) else total_real)
+        st.write(f"### Datos (Modelo: {model_name})")
         st.dataframe(df.head())
 
-        pregunta = st.text_input("¿Qué más querés saber?")
+        pregunta = st.text_input("¿Qué querés preguntarle a la IA?")
         
         if pregunta:
-            # Aquí le pasamos un resumen estadístico, no todas las filas, para que no se maree
-            resumen = df.describe().to_string()
-            columnas = ", ".join(df.columns)
-            prompt = f"Datos: Archivo con {len(df)} filas. Columnas: {columnas}. Suma total de Ventas: {total_real}. Resumen: {resumen}. Pregunta: {pregunta}"
-            
+            # Le pasamos el total matemático a la IA para que no se equivoque
+            prompt = f"Datos: {len(df)} filas. Total Venta: {total_facturado}. Columnas: {list(df.columns)}. Pregunta: {pregunta}"
             with st.spinner('Analizando...'):
                 response = model.generate_content(prompt)
                 st.success(response.text)
@@ -45,4 +49,4 @@ if api_key and uploaded_file:
     except Exception as e:
         st.error(f"Error: {e}")
 else:
-    st.info("💡 Ingresá tu API Key y subí el archivo.")
+    st.info("💡 Pegá tu API Key y subí el archivo para empezar.")
