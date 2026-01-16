@@ -12,29 +12,37 @@ with st.sidebar:
 if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # BUSCADOR AUTOMÁTICO DE MODELOS
-        # Esto evita el error 404 porque elige uno que SÍ exista en tu cuenta
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        model_name = available_models[0] if available_models else 'gemini-pro'
-        model = genai.GenerativeModel(model_name)
-        
+        # Leemos TODO el archivo
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
-        st.write(f"### Datos cargados (Usando modelo: {model_name})")
+        
+        # LIMPIEZA DE NÚMEROS: Intentamos convertir la columna 'Venta' a número real
+        if 'Venta' in df.columns:
+            # Quitamos puntos de miles y cambiamos comas por puntos decimales
+            df['Venta_Limpia'] = df['Venta'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+            df['Venta_Limpia'] = pd.to_numeric(df['Venta_Limpia'], errors='coerce').fillna(0)
+            total_real = df['Venta_Limpia'].sum()
+        else:
+            total_real = "Columna 'Venta' no encontrada"
+
+        st.write(f"### Datos cargados con éxito")
+        st.write(f"**Total calculado por sistema:** ${total_real:,.2f}" if isinstance(total_real, float) else total_real)
         st.dataframe(df.head())
 
-        pregunta = st.text_input("¿Qué querés saber?")
+        pregunta = st.text_input("¿Qué más querés saber?")
         
         if pregunta:
-            prompt = f"Datos: {df.head(20).to_string()}\n\nPregunta: {pregunta}"
+            # Aquí le pasamos un resumen estadístico, no todas las filas, para que no se maree
+            resumen = df.describe().to_string()
+            columnas = ", ".join(df.columns)
+            prompt = f"Datos: Archivo con {len(df)} filas. Columnas: {columnas}. Suma total de Ventas: {total_real}. Resumen: {resumen}. Pregunta: {pregunta}"
+            
             with st.spinner('Analizando...'):
-                try:
-                    response = model.generate_content(prompt)
-                    st.success(response.text)
-                except Exception as e:
-                    st.error(f"Error al responder: {e}")
+                response = model.generate_content(prompt)
+                st.success(response.text)
                     
     except Exception as e:
-        st.error(f"Error de configuración: {e}. Verificá que tu API Key sea válida.")
+        st.error(f"Error: {e}")
 else:
     st.info("💡 Ingresá tu API Key y subí el archivo.")
