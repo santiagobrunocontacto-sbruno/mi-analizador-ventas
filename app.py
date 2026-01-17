@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-import time
 
-st.set_page_config(page_title="Auditor Pro", layout="wide")
-st.title("📊 Auditoría Comercial Inteligente")
+st.set_page_config(page_title="Auditor Comercial", layout="wide")
+st.title("📊 Sistema de Auditoría de Ventas")
 
 with st.sidebar:
-    st.header("Configuración")
     api_key = st.text_input("Ingresá tu API Key:", type="password")
     uploaded_file = st.file_uploader("Subí tu archivo CSV", type=["csv"])
 
@@ -15,67 +13,53 @@ if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
         
-        # --- SELECCIÓN DE MODELO MÁS LIVIANO (FLASH) ---
-        # El modelo 'flash' es el mejor para presupuestos gratuitos/bajos
-        modelo_nombre = 'models/gemini-1.5-flash'
-        
-        # --- PROCESAMIENTO DE DATOS ---
+        # 1. LEER ARCHIVO (Separador automático para fac limpia.csv)
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
         df.columns = df.columns.str.strip()
         
-        def encontrar_columna(lista, objetivo):
-            for c in lista:
-                if objetivo.lower() in str(c).lower(): return c
-            return None
-
-        col_venta = encontrar_columna(df.columns, 'Venta')
-        col_marca = encontrar_columna(df.columns, 'Marca')
-        col_vendedor = encontrar_columna(df.columns, 'Vendedor')
-        col_cliente = encontrar_columna(df.columns, 'Razón social')
-
-        if col_venta:
-            df['Venta_Num'] = pd.to_numeric(df[col_venta], errors='coerce').fillna(0)
-            total_facturado = df['Venta_Num'].sum()
+        # 2. PROCESAR COLUMNA VENTA
+        col_v = next((c for c in df.columns if 'venta' in c.lower()), None)
+        
+        if col_v:
+            df['Venta_N'] = pd.to_numeric(df[col_v], errors='coerce').fillna(0)
+            total = df['Venta_N'].sum()
             
-            # Resúmenes (Limitamos a 10 para ahorrar cuota)
-            res_marcas = df.groupby(col_marca)['Venta_Num'].sum().nlargest(10).to_dict() if col_marca else {}
-            res_vend = df.groupby(col_vendedor)['Venta_Num'].sum().nlargest(10).to_dict() if col_vendedor else {}
-            res_cli = df.groupby(col_cliente)['Venta_Num'].sum().nlargest(10).to_dict() if col_cliente else {}
-
-            t1, t2 = st.tabs(["📉 Tablero de Control", "🤖 Consultor IA"])
+            # Mostramos métricas básicas de inmediato
+            st.metric("TOTAL FACTURADO", f"${total:,.2f}")
             
-            with t1:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("FACTURACIÓN TOTAL", f"${total_facturado:,.2f}")
-                c2.metric("OPERACIONES", f"{len(df):,}")
-                c3.metric("TICKET PROMEDIO", f"${(total_facturado/len(df)) if len(df)>0 else 0:,.2f}")
+            # 3. PREPARAR RESUMEN CORTO (Para no gastar cuota)
+            # Solo enviamos el Top 5 de cada cosa para que la IA gaste menos 'combustible'
+            res_marca = df.groupby('Marca')['Venta_N'].sum().nlargest(5).to_dict() if 'Marca' in df.columns else {}
+            res_vend = df.groupby('Nombre Vendedor')['Venta_N'].sum().nlargest(5).to_dict() if 'Nombre Vendedor' in df.columns else {}
+            
+            st.write("---")
+            pregunta = st.text_input("¿Qué necesitás saber?")
+            
+            if pregunta:
+                # MODELO FLASH: Es el que más cupo tiene en la versión gratis
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                if col_marca:
-                    st.write("### Ventas por Marca")
-                    st.bar_chart(pd.Series(res_marcas))
-
-            with t2:
-                st.write("### 💬 Consultas Gerenciales")
-                pregunta = st.text_input("Hacé tu pregunta:")
+                contexto = f"Datos: Total {total}. Top Marcas: {res_marca}. Top Vendedores: {res_vend}. Pregunta: {pregunta}"
                 
-                if pregunta:
-                    try:
-                        model = genai.GenerativeModel(modelo_nombre)
-                        contexto = f"Total: {total_facturado}. Marcas: {res_marcas}. Vendedores: {res_vend}. Clientes: {res_cli}. Pregunta: {pregunta}"
+                try:
+                    with st.spinner('Analizando...'):
+                        response = model.generate_content(contexto)
+                        st.success(response.text)
+                except Exception as ai_err:
+                    if "429" in str(ai_err):
+                        st.error("⚠️ Cuota agotada. Por favor, esperá 60 segundos antes de preguntar de nuevo.")
+                    else:
+                        st.error(f"Error de la IA: {ai_err}")
                         
-                        with st.spinner("La IA está analizando..."):
-                            response = model.generate_content(contexto)
-                            st.info(response.text)
-                    
-                    except Exception as e:
-                        if "429" in str(e):
-                            st.warning("⚠️ Agotamos la cuota gratuita de este minuto. Por favor, esperá 30 segundos y volvé a preguntar.")
-                        else:
-                            st.error(f"Hubo un problema con la IA: {e}")
+            # Gráfico simple para que siempre tengas info visual
+            if 'Marca' in df.columns:
+                st.subheader("Top Marcas")
+                st.bar_chart(df.groupby('Marca')['Venta_N'].sum().nlargest(10))
+
         else:
             st.error("No se encontró la columna 'Venta'.")
 
     except Exception as e:
-        st.error(f"Error al cargar el archivo: {e}")
+        st.error(f"Error técnico: {e}")
 else:
-    st.info("👋 Esperando API Key y archivo...")
+    st.info("💡 Pegá tu API Key y subí el archivo para empezar.")
