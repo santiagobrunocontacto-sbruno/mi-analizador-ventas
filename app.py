@@ -3,7 +3,6 @@ import pandas as pd
 import google.generativeai as genai
 import traceback
 
-# 1. Configuración de arranque
 st.set_page_config(page_title="Auditor Pro", layout="wide")
 st.title("📊 Auditoría Comercial Inteligente")
 
@@ -16,43 +15,52 @@ if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
         
-        # 2. Lectura ultra-robusta
-        # Intentamos detectar el formato automáticamente
+        # --- NUEVO: DETECTOR AUTOMÁTICO DE MODELO ---
+        # Listamos los modelos que tu API Key tiene permitidos
+        modelos_disponibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # Elegimos el mejor disponible: preferimos flash, si no pro, si no el primero que haya
+        modelo_a_usar = ""
+        for m in modelos_disponibles:
+            if "gemini-1.5-flash" in m:
+                modelo_a_usar = m
+                break
+        if not modelo_a_usar:
+            for m in modelos_disponibles:
+                if "gemini-pro" in m:
+                    modelo_a_usar = m
+                    break
+        if not modelo_a_usar:
+            modelo_a_usar = modelos_disponibles[0]
+            
+        st.sidebar.success(f"Usando modelo: {modelo_a_usar}")
+
+        # --- PROCESAMIENTO DE DATOS ---
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
-        
-        # Limpiamos nombres de columnas (quitamos espacios y pasamos a minúsculas para el código)
         df.columns = df.columns.str.strip()
-        columnas_originales = list(df.columns)
         
-        # Buscamos las columnas sin importar mayúsculas o acentos
         def encontrar_columna(lista, objetivo):
             for c in lista:
-                if objetivo.lower() in c.lower(): return c
+                if objetivo.lower() in str(c).lower(): return c
             return None
 
-        col_venta = encontrar_columna(columnas_originales, 'Venta')
-        col_marca = encontrar_columna(columnas_originales, 'Marca')
-        col_vendedor = encontrar_columna(columnas_originales, 'Vendedor')
-        col_cat = encontrar_columna(columnas_originales, 'Categoria')
-        col_fecha = encontrar_columna(columnas_originales, 'Fecha')
-        col_cliente = encontrar_columna(columnas_originales, 'Razón social')
+        col_venta = encontrar_columna(df.columns, 'Venta')
+        col_marca = encontrar_columna(df.columns, 'Marca')
+        col_vendedor = encontrar_columna(df.columns, 'Vendedor')
+        col_cliente = encontrar_columna(df.columns, 'Razón social')
 
         if col_venta:
-            # 3. Procesamiento de datos
             df['Venta_Num'] = pd.to_numeric(df[col_venta], errors='coerce').fillna(0)
             total_facturado = df['Venta_Num'].sum()
             
-            # Pre-cálculos para la IA
+            # Resúmenes para la IA
             res_marcas = df.groupby(col_marca)['Venta_Num'].sum().nlargest(15).to_dict() if col_marca else {}
             res_vend = df.groupby(col_vendedor)['Venta_Num'].sum().nlargest(15).to_dict() if col_vendedor else {}
-            res_cat = df.groupby(col_cat)['Venta_Num'].sum().nlargest(15).to_dict() if col_cat else {}
             res_cli = df.groupby(col_cliente)['Venta_Num'].sum().nlargest(15).to_dict() if col_cliente else {}
 
-            # 4. Interfaz de Usuario
             t1, t2 = st.tabs(["📉 Tablero de Control", "🤖 Consultor IA"])
             
             with t1:
-                st.subheader("Métricas Principales")
                 c1, c2, c3 = st.columns(3)
                 c1.metric("FACTURACIÓN TOTAL", f"${total_facturado:,.2f}")
                 c2.metric("OPERACIONES", f"{len(df):,}")
@@ -64,34 +72,31 @@ if api_key and uploaded_file:
 
             with t2:
                 st.write("### 💬 Consultas Gerenciales")
-                pregunta = st.text_input("Ejemplo: ¿Cuál es el podio de marcas y quién es el mejor vendedor?")
+                pregunta = st.text_input("Hacé tu pregunta:")
                 
                 if pregunta:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Usamos el modelo que detectamos automáticamente arriba
+                    model = genai.GenerativeModel(modelo_a_usar)
                     
                     contexto = f"""
-                    Datos resumidos de la empresa:
+                    Datos resumidos:
                     - Total Facturado: {total_facturado}
                     - Top Marcas: {res_marcas}
                     - Top Vendedores: {res_vend}
-                    - Top Categorías: {res_cat}
                     - Top Clientes: {res_cli}
                     
                     Pregunta: {pregunta}
-                    Responde como un analista de negocios, de forma breve y con datos precisos.
+                    Responde de forma ejecutiva y precisa.
                     """
                     
-                    with st.spinner("Analizando..."):
+                    with st.spinner("Analizando con la IA..."):
                         response = model.generate_content(contexto)
                         st.info(response.text)
         else:
-            st.error(f"No encontré la columna 'Venta'. Las columnas detectadas son: {columnas_originales}")
+            st.error("No se encontró la columna 'Venta'.")
 
     except Exception as e:
-        # SISTEMA DE DIAGNÓSTICO: Si falla, nos dice por qué
-        st.error("🚨 Se detectó un error en el procesamiento:")
+        st.error("🚨 Error detectado:")
         st.code(traceback.format_exc())
-        st.warning("Enviame una captura de este código de error para que lo solucione.")
-
 else:
-    st.info("👋 Hola Santiago. Cargá tu API Key y el archivo para empezar.")
+    st.info("👋 Esperando API Key y archivo...")
