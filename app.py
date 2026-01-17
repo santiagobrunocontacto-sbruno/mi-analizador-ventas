@@ -3,132 +3,159 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# CONFIGURACIÓN
-st.set_page_config(page_title="Tablero Comercial Pro", layout="wide")
+# CONFIGURACIÓN DE PÁGINA ESTILO CORPORATIVO
+st.set_page_config(page_title="Executive Sales Report", layout="wide")
 sns.set_theme(style="whitegrid")
 
-def limpieza_contable_extrema(serie):
-    """Limpia formatos contables complejos y asegura lectura correcta de millones"""
+def limpieza_contable_total(serie):
+    """Función definitiva para limpiar moneda argentina (puntos de miles y coma decimal)"""
     s = serie.astype(str).str.strip()
-    # Eliminamos el símbolo $ y espacios
     s = s.str.replace('$', '', regex=False).str.replace(' ', '', regex=False)
-    # Caso crítico: Si hay puntos y comas, el punto es de miles. Lo borramos.
-    # Luego la coma la pasamos a punto para que Python entienda el decimal.
-    s = s.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+    # Si el número tiene coma y punto, el punto es de miles (se borra) y la coma es decimal (se pasa a punto)
+    if s.str.contains(',').any() and s.str.contains('\.').any():
+        s = s.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+    # Si solo tiene coma, es el separador decimal
+    elif s.str.contains(',').any():
+        s = s.str.replace(',', '.', regex=False)
+    # Si solo tiene punto y parece ser de miles (ej: 7.860.717)
+    elif s.str.count('\.') > 1:
+        s = s.str.replace('.', '', regex=False)
     return pd.to_numeric(s, errors='coerce').fillna(0)
 
 @st.cache_data
-def cargar_todo(file):
+def cargar_datos(file):
     df = pd.read_csv(file, sep=';', encoding='latin-1')
     df.columns = df.columns.str.strip()
     
-    # PROCESAMIENTO NUMÉRICO AUDITADO
-    df['Venta_N'] = limpieza_contable_extrema(df['Venta'])
-    df['Costo_N'] = limpieza_contable_extrema(df['Costo Total'])
-    df['Cantidad_N'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0)
+    # Procesamiento Matemático
+    df['Venta_N'] = limpieza_contable_total(df['Venta'])
+    df['Costo_N'] = limpieza_contable_total(df['Costo Total'])
+    df['Cantidad_N'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0).astype(int)
     
-    # NORMALIZACIÓN DE TEXTO
+    # Normalización de Texto
     df['Marca_Clean'] = df['Marca'].astype(str).str.upper().str.strip()
     df['Vendedor_Clean'] = df['Nombre Vendedor'].astype(str).str.upper().str.strip()
+    df['Cat_Clean'] = df['Categoria'].astype(str).str.upper().str.strip()
     
     return df
 
 # --- INTERFAZ ---
-st.title("🚀 Tablero de Comando Comercial")
-archivo = st.file_uploader("Cargar fac limpia.csv", type=["csv"])
+st.title("🏛️ Informe Anual de Gestión Comercial")
+archivo = st.file_uploader("Cargar Base de Datos (CSV)", type=["csv"])
 
 if archivo:
-    df = cargar_todo(archivo)
+    df = cargar_datos(archivo)
     
     # ==========================================
-    # 1. RESUMEN GENERAL (KPIs SUPERIORES)
+    # 1. RESUMEN EJECUTIVO GLOBAL
     # ==========================================
-    st.header("1. Resumen Ejecutivo Global")
+    st.header("1. Performance Corporativa")
     v_tot = df['Venta_N'].sum()
     c_tot = df['Costo_N'].sum()
-    # Renta global exacta: (V-C)/V
     renta_global = ((v_tot - c_tot) / v_tot * 100) if v_tot != 0 else 0
     
+    # Formato de moneda para visualización clara
+    st.markdown(f"### VENTA TOTAL ANUAL: **$ {v_tot:,.0f}**")
+    
     c1, c2, c3 = st.columns(3)
-    c1.metric("VENTA TOTAL", f"$ {v_tot:,.0f}")
-    c2.metric("MARGEN RTA %", f"{renta_global:.1f} %")
-    c3.metric("TOTAL CLIENTES", f"{df['Razón social'].nunique():,}")
-    
-    # FACTURACIÓN POR MARCA FOCO (Corregido búsqueda por texto)
-    st.subheader("📊 Facturación por Marca Foco")
+    c1.metric("MARGEN RTA %", f"{renta_global:.2f} %")
+    c2.metric("CLIENTES ACTIVOS", f"{df['Razón social'].nunique():,}")
+    c3.metric("BULTOS TOTALES", f"{df['Cantidad_N'].sum():,}")
+
+    # GRÁFICO DE MARCAS FOCO (Con valores enteros)
+    st.subheader("📊 Facturación Marcas Foco")
     marcas_foco = ['SMART TEK', 'X-VIEW', 'TABLETS', 'CLOUDBOOK', 'LEVEL-UP', 'MICROCASE', 'TERRA']
-    cols_f = st.columns(len(marcas_foco))
-    
-    for i, m in enumerate(marcas_foco):
-        # Buscamos coincidencias parciales (ej: 'TABLET' encuentra 'TABLETS')
-        base_m = m.split('-')[0].split(' ')[0] # Toma la primera palabra clave
-        vta_m = df[df['Marca_Clean'].str.contains(base_m, na=False)]['Venta_N'].sum()
-        cols_f[i].metric(m, f"${vta_m:,.0f}")
+    vta_m_foco = {}
+    for m in marcas_foco:
+        # Búsqueda inteligente para evitar el $0 (ej: busca 'LEVEL' para encontrar 'LEVEL-UP')
+        busqueda = m.split('-')[0].split(' ')[0]
+        vta_m_foco[m] = df[df['Marca_Clean'].str.contains(busqueda, na=False)]['Venta_N'].sum()
+
+    fig_f, ax_f = plt.subplots(figsize=(12, 4))
+    sns.barplot(x=list(vta_m_foco.keys()), y=list(vta_m_foco.values()), palette="Blues_d", ax=ax_f)
+    ax_f.ticklabel_format(style='plain', axis='y')
+    for p in ax_f.patches:
+        ax_f.annotate(f'${p.get_height():,.0f}', (p.get_x() + p.get_width() / 2., p.get_height()), 
+                     ha='center', va='center', xytext=(0, 9), textcoords='offset points', fontsize=8)
+    st.pyplot(fig_f)
 
     st.divider()
 
     # ==========================================
     # 2. DASHBOARD INDIVIDUAL: PABLO LOPEZ
     # ==========================================
-    st.header("👤 Dashboard de Desempeño: PABLO LOPEZ")
+    nombre_vendedor = "PABLO LOPEZ" # Esto se puede convertir en un selector luego
+    df_v = df[df['Vendedor_Clean'].str.contains(nombre_vendedor, na=False)]
     
-    # Filtramos datos específicos para Pablo
-    df_pablo = df[df['Vendedor_Clean'].str.contains("PABLO LOPEZ", na=False)]
-    
-    if not df_pablo.empty:
-        v_pablo = df_pablo['Venta_N'].sum()
-        c_pablo = df_pablo['Costo_N'].sum()
-        r_pablo = ((v_pablo - c_pablo) / v_pablo * 100) if v_pablo != 0 else 0
-        cli_pablo = df_pablo['Razón social'].nunique()
+    if not df_v.empty:
+        st.header(f"👤 Dashboard Gerencial: {nombre_vendedor}")
+        
+        v_v = df_v['Venta_N'].sum()
+        c_v = df_v['Costo_N'].sum()
+        r_v = ((v_v - c_v) / v_v * 100) if v_v != 0 else 0
+        
+        # Simulación Año Anterior (Para cuando sumes el dato)
+        v_año_ant = 0 # Aquí iría la lógica de filtrado del año pasado
+        crecimiento = ((v_v - v_año_ant) / v_año_ant * 100) if v_año_ant > 0 else 0
 
-        # Estética Power BI: Fondo azul para KPIs del vendedor
+        # ENCABEZADO AZUL CORPORATIVO
         st.markdown(f"""
-        <div style="background-color:#1E3A8A; padding:20px; border-radius:10px; color:white; margin-bottom:20px">
-            <div style="display:flex; justify-content:space-between; align-items:center">
-                <h2 style="color:white; margin:0">PABLO LOPEZ</h2>
-                <h1 style="color:white; margin:0">$ {v_pablo:,.0f}</h1>
-                <div style="text-align:right">
-                    <p style="margin:0">Cant. Clientes</p>
-                    <h2 style="color:white; margin:0">{cli_pablo}</h2>
-                </div>
-                <div style="text-align:right">
-                    <p style="margin:0">Renta %</p>
-                    <h2 style="color:white; margin:0">{r_pablo:.2f}%</h2>
-                </div>
-            </div>
+        <div style="background-color:#002147; padding:25px; border-radius:10px; color:white; border-left: 10px solid #0077B6">
+            <table style="width:100%; border:none">
+                <tr>
+                    <td style="font-size:30px; font-weight:bold">{nombre_vendedor}</td>
+                    <td style="text-align:center; font-size:35px; font-weight:bold">$ {v_v:,.0f}</td>
+                    <td style="text-align:right">
+                        <span style="font-size:14px">RENTA %</span><br>
+                        <span style="font-size:24px; font-weight:bold">{r_v:.2f}%</span>
+                    </td>
+                    <td style="text-align:right">
+                        <span style="font-size:14px">CRECIMIENTO vs AA</span><br>
+                        <span style="font-size:24px; font-weight:bold">{crecimiento:.1f}%</span>
+                    </td>
+                </tr>
+            </table>
         </div>
         """, unsafe_allow_html=True)
 
-        col_p1, col_p2 = st.columns([1, 2])
-        
-        with col_p1:
-            st.subheader("Venta x Marca")
-            # Agrupamos marcas para el gráfico de torta de Pablo
-            m_pablo = df_pablo.groupby('Marca_Clean')['Venta_N'].sum().nlargest(6)
-            fig_pie, ax_pie = plt.subplots()
-            ax_pie.pie(m_pablo, labels=m_pablo.index, autopct='%1.1f%%', startangle=90, colors=sns.color_palette("viridis"))
-            st.pyplot(fig_pie)
+        col_v1, col_v2 = st.columns([1, 1.5])
 
-        with col_p2:
-            st.subheader("Detalle por Cliente (Razón Social)")
-            # Tabla de performance por cliente
-            tabla_cli = df_pablo.groupby('Razón social').agg({
+        with col_v1:
+            st.subheader("Venta por Marca ($ y %)")
+            m_v_data = df_v.groupby('Marca_Clean')['Venta_N'].sum().nlargest(6)
+            
+            fig_p, ax_p = plt.subplots(figsize=(6, 6))
+            # Función para mostrar Monto + Porcentaje en la torta
+            def fmt(x):
+                return '{:.1f}%\n(${:,.0f})'.format(x, v_v * x / 100)
+            
+            ax_p.pie(m_v_data, labels=m_v_data.index, autopct=fmt, startangle=90, 
+                     colors=sns.color_palette("mako"), textprops={'fontsize': 8})
+            st.pyplot(fig_p)
+
+        with col_v2:
+            st.subheader("Ranking de Categorías Vendidas")
+            cat_rank = df_v.groupby('Cat_Clean').agg({
                 'Venta_N': 'sum',
-                'Costo_N': 'sum',
                 'Cantidad_N': 'sum'
-            }).reset_index()
+            }).sort_values('Venta_N', ascending=False)
             
-            tabla_cli['Renta %'] = ((tabla_cli['Venta_N'] - tabla_cli['Costo_N']) / tabla_cli['Venta_N'] * 100).round(1)
-            
-            st.dataframe(
-                tabla_cli[['Razón social', 'Renta %', 'Venta_N', 'Cantidad_N']]
-                .sort_values(by='Venta_N', ascending=False)
-                .style.format({'Venta_N': '${:,.0f}', 'Renta %': '{:.1f}%'}),
-                use_container_width=True,
-                height=400
-            )
-    else:
-        st.warning("No se encontraron datos para 'PABLO LOPEZ'. Verificá el nombre en el Excel.")
+            st.dataframe(cat_rank.style.format({'Venta_N': '${:,.0f}', 'Cantidad_N': '{:,}'}), use_container_width=True)
 
-    st.divider()
-    # (Aquí sigue el resto de tu informe vertical...)
+        st.subheader("Detalle de Cartera de Clientes")
+        cli_df = df_v.groupby('Razón social').agg({
+            'Venta_N': 'sum',
+            'Costo_N': 'sum',
+            'Cantidad_N': 'sum'
+        }).reset_index()
+        cli_df['Renta %'] = ((cli_df['Venta_N'] - cli_df['Costo_N']) / cli_df['Venta_N'] * 100).round(2)
+        
+        st.dataframe(
+            cli_df[['Razón social', 'Venta_N', 'Renta %', 'Cantidad_N']]
+            .sort_values('Venta_N', ascending=False)
+            .style.format({'Venta_N': '${:,.0f}', 'Renta %': '{:.2f}%', 'Cantidad_N': '{:,}'}),
+            use_container_width=True
+        )
+
+else:
+    st.info("Esperando archivo CSV para generar el Reporte Multinacional...")
