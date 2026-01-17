@@ -7,16 +7,13 @@ import seaborn as sns
 st.set_page_config(page_title="Executive Sales Report", layout="wide")
 sns.set_theme(style="whitegrid")
 
-def limpieza_contable_final(serie):
-    """Limpia moneda eliminando puntos de miles y convirtiendo coma en decimal"""
-    s = serie.astype(str).str.strip()
-    s = s.str.replace('$', '', regex=False).str.replace(' ', '', regex=False)
-    
-    # Lógica: En Argentina 1.234,56 -> Queremos 1234.56
-    # 1. Sacamos los puntos de miles
-    # 2. Cambiamos la coma decimal por punto
-    s = s.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-    
+def limpieza_contable_simple(serie):
+    """Limpia moneda de forma directa para evitar errores de interpretación"""
+    # Pasamos a string y quitamos símbolos y puntos de miles
+    s = serie.astype(str).str.replace('$', '', regex=False).str.replace('.', '', regex=False).str.strip()
+    # Cambiamos la coma por punto para el decimal
+    s = s.str.replace(',', '.', regex=False)
+    # Convertimos a número (si falla algo pone 0)
     return pd.to_numeric(s, errors='coerce').fillna(0)
 
 @st.cache_data
@@ -24,10 +21,9 @@ def cargar_datos(file):
     df = pd.read_csv(file, sep=';', encoding='latin-1')
     df.columns = df.columns.str.strip()
     
-    # Procesamiento Numérico
-    df['Venta_N'] = limpieza_contable_final(df['Venta'])
-    df['Costo_N'] = limpieza_contable_final(df['Costo Total'])
-    # Cantidad como entero puro (unidades)
+    # Procesamiento Numérico con la nueva función simple
+    df['Venta_N'] = limpieza_contable_simple(df['Venta'])
+    df['Costo_N'] = limpieza_contable_simple(df['Costo Total'])
     df['Cantidad_N'] = pd.to_numeric(df['Cantidad'], errors='coerce').fillna(0).astype(int)
     
     # Normalización
@@ -48,26 +44,42 @@ if archivo:
     # 1. PERFORMANCE CORPORATIVA GLOBAL
     # ==========================================
     st.header("1. Performance Corporativa")
+    
     v_tot = df['Venta_N'].sum()
     c_tot = df['Costo_N'].sum()
-    renta_global = ((v_tot - c_tot) / v_tot * 100) if v_tot != 0 else 0
     
+    # Cálculo de rentabilidad directa sobre el total visible
+    renta_global = ((v_tot - c_tot) / v_tot * 100) if v_tot != 0 else 0
+    cant_clientes_global = df['Razón social'].nunique()
+
+    # KPI's Principales
     st.markdown(f"### VENTA TOTAL ANUAL: **$ {v_tot:,.0f}**")
     
     c1, c2, c3 = st.columns(3)
-    # Mostramos renta con 1 decimal como pediste
-    c1.metric("MARGEN RTA %", f"{renta_global:.1f}%")
-    c2.metric("CLIENTES ACTIVOS", f"{df['Razón social'].nunique():,}")
-    c3.metric("BULTOS TOTALES", f"{df['Cantidad_N'].sum():,}")
+    with c1:
+        st.metric("MARGEN RTA %", f"{renta_global:.1f}%")
+        st.caption("Fórmula: (Venta - Costo) / Venta")
+    with c2:
+        st.metric("CANTIDAD DE CLIENTES", f"{cant_clientes_global:,}")
+        st.caption("Recuento distintivo de Razón Social")
+    with c3:
+        # Mantenemos este espacio para un KPI futuro o podrías poner el total de marcas foco aquí
+        vta_m_foco_total = df[df['Marca_Clean'].str.contains('SMART|X-VIEW|TABLET|CLOUD|LEVEL|MICROCASE|TERRA', na=False)]['Venta_N'].sum()
+        st.metric("VTA. MARCAS FOCO", f"$ {vta_m_foco_total:,.0f}")
 
-    # Gráfico de Marcas Foco (Siempre visible)
+    # Gráfico de Marcas Foco (Siempre visible para calidad visual)
     st.subheader("📊 Facturación Marcas Foco")
     marcas_foco = ['SMART TEK', 'X-VIEW', 'TABLETS', 'CLOUDBOOK', 'LEVEL-UP', 'MICROCASE', 'TERRA']
+    # Diccionario de búsqueda simplificado
     vta_m_foco = {m: df[df['Marca_Clean'].str.contains(m.split()[0], na=False)]['Venta_N'].sum() for m in marcas_foco}
 
     fig_f, ax_f = plt.subplots(figsize=(12, 4))
     sns.barplot(x=list(vta_m_foco.keys()), y=list(vta_m_foco.values()), palette="Blues_d", ax=ax_f)
-    ax_f.ticklabel_format(style='plain', axis='y') # Evita el 1e9
+    ax_f.ticklabel_format(style='plain', axis='y')
+    # Etiquetas de datos sobre las barras
+    for p in ax_f.patches:
+        ax_f.annotate(f'${p.get_height():,.0f}', (p.get_x() + p.get_width() / 2., p.get_height()), 
+                     ha='center', va='center', xytext=(0, 9), textcoords='offset points', fontsize=9)
     st.pyplot(fig_f)
 
     st.divider()
@@ -84,22 +96,19 @@ if archivo:
         v_v = df_v['Venta_N'].sum()
         c_v = df_v['Costo_N'].sum()
         r_v = ((v_v - c_v) / v_v * 100) if v_v != 0 else 0
-        
-        # Simulación Crecimiento (Preparado para AA)
-        v_año_ant = 0 
-        crecimiento = ((v_v - v_año_ant) / v_año_ant * 100) if v_año_ant > 0 else 0
+        cli_v = df_v['Razón social'].nunique()
 
-        # ENCABEZADO ESTILO POWER BI
+        # ENCABEZADO ESTILO POWER BI (Fondo Azul)
         st.markdown(f"""
         <div style="background-color:#002147; padding:25px; border-radius:10px; color:white; border-left: 10px solid #0077B6">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div><span style="font-size:30px; font-weight:bold">{nombre_v}</span></div>
                 <div><span style="font-size:35px; font-weight:bold">$ {v_v:,.0f}</span></div>
                 <div style="text-align:right">
-                    <span style="font-size:12px">RENTA %</span><br><span style="font-size:22px; font-weight:bold">{r_v:.1f}%</span>
+                    <span style="font-size:12px">CANT. CLIENTES</span><br><span style="font-size:22px; font-weight:bold">{cli_v}</span>
                 </div>
                 <div style="text-align:right">
-                    <span style="font-size:12px">vs AÑO ANT.</span><br><span style="font-size:22px; font-weight:bold">{crecimiento:.1f}%</span>
+                    <span style="font-size:12px">RENTA %</span><br><span style="font-size:22px; font-weight:bold">{r_v:.1f}%</span>
                 </div>
             </div>
         </div>
@@ -112,7 +121,6 @@ if archivo:
             m_data = df_v.groupby('Marca_Clean')['Venta_N'].sum().nlargest(6)
             fig_p, ax_p = plt.subplots(figsize=(6, 6))
             
-            # Torta con Montos y Porcentajes
             def make_autopct(values):
                 def my_autopct(pct):
                     total = sum(values)
@@ -121,7 +129,7 @@ if archivo:
                 return my_autopct
 
             ax_p.pie(m_data, labels=m_data.index, autopct=make_autopct(m_data), 
-                     startangle=90, colors=sns.color_palette("viridis"), textprops={'fontsize': 8})
+                     startangle=90, colors=sns.color_palette("viridis"), textprops={'fontsize': 9})
             st.pyplot(fig_p)
 
         with col_v2:
@@ -139,6 +147,7 @@ if archivo:
             'Costo_N': 'sum',
             'Cantidad_N': 'sum'
         }).reset_index()
+        # Renta por cliente recalculada
         cli_df['Renta %'] = ((cli_df['Venta_N'] - cli_df['Costo_N']) / cli_df['Venta_N'] * 100)
         
         st.dataframe(
