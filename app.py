@@ -12,27 +12,28 @@ with st.sidebar:
 if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
-        # Detectamos el separador ; que usa tu archivo
+        # Cargamos el archivo con el separador correcto
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
         
         if 'Venta' in df.columns:
-            # Procesamiento de números
+            # Limpieza numérica
             df['Venta_Numerica'] = pd.to_numeric(df['Venta'], errors='coerce').fillna(0)
-            
-            # --- NUEVO: PROCESAMIENTO DE FECHAS ---
-            # Convertimos la columna 'Fecha de emisión' a formato fecha real
             df['Fecha_DT'] = pd.to_datetime(df['Fecha de emisión'], dayfirst=True, errors='coerce')
+
+            # --- PROCESAMIENTO DE RESÚMENES (Para que la IA sepa todo) ---
+            # 1. Ventas por Marca
+            resumen_marca = df.groupby('Marca')['Venta_Numerica'].sum().nlargest(10).to_string() if 'Marca' in df.columns else ""
             
-            # Resumen por mes para la IA
-            ventas_por_mes = ""
-            if not df['Fecha_DT'].isnull().all():
-                resumen_mensual = df.groupby(df['Fecha_DT'].dt.strftime('%Y-%m'))['Venta_Numerica'].sum()
-                ventas_por_mes = resumen_mensual.to_string()
+            # 2. Ventas por Categoría
+            resumen_cat = df.groupby('Categoria')['Venta_Numerica'].sum().nlargest(10).to_string() if 'Categoria' in df.columns else ""
+            
+            # 3. Ventas por Mes
+            resumen_mes = df.groupby(df['Fecha_DT'].dt.strftime('%Y-%m'))['Venta_Numerica'].sum().to_string() if not df['Fecha_DT'].isnull().all() else ""
 
-            # Resumen por Vendedor
-            ventas_vendedor = df.groupby('Nombre Vendedor')['Venta_Numerica'].sum().nlargest(5).to_string() if 'Nombre Vendedor' in df.columns else ""
+            # 4. Ventas por Vendedor
+            resumen_vend = df.groupby('Nombre Vendedor')['Venta_Numerica'].sum().nlargest(10).to_string() if 'Nombre Vendedor' in df.columns else ""
 
-            # MÉTRICAS PRINCIPALES
+            # MÉTRICAS VISUALES
             total_facturado = df['Venta_Numerica'].sum()
             c1, c2, c3 = st.columns(3)
             c1.metric("TOTAL FACTURADO", f"${total_facturado:,.2f}")
@@ -40,32 +41,29 @@ if api_key and uploaded_file:
             c3.metric("TICKET PROMEDIO", f"${(total_facturado/len(df)):,.2f}")
             
             st.write("---")
-            pregunta = st.text_input("¿Qué querés saber? (Ej: Ventas por mes, mejor vendedor...)")
+            pregunta = st.text_input("¿Qué querés saber? (Marcas, Meses, Vendedores, Categorías...)")
             
             if pregunta:
                 modelos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
                 model = genai.GenerativeModel(modelos[0])
                 
-                # Le pasamos a la IA los datos ya agrupados
+                # Le pasamos TODO el menú de datos ya calculados
                 prompt = f"""
-                Actuá como analista senior. Datos analizados por el sistema:
+                Sos un experto en análisis comercial. Estos son los datos de la empresa:
                 - TOTAL GENERAL: {total_facturado}
-                - VENTAS POR MES:
-                {ventas_por_mes}
-                - TOP 5 VENDEDORES:
-                {ventas_vendedor}
+                - VENTAS POR MARCA: {resumen_marca}
+                - VENTAS POR CATEGORÍA: {resumen_cat}
+                - VENTAS POR MES: {resumen_mes}
+                - VENTAS POR VENDEDOR: {resumen_vend}
                 
                 Pregunta del usuario: {pregunta}
                 
-                Respuesta: (Si te piden ventas por mes, usá los datos de arriba. Respondé de forma clara y directa).
+                Instrucción: Usa los datos de arriba para responder. Si te preguntan por algo que no está arriba, aclará que no tenés ese resumen específico. Responde de forma ejecutiva.
                 """
-                with st.spinner('Analizando...'):
+                with st.spinner('Consultando datos...'):
                     response = model.generate_content(prompt)
                     st.info(response.text)
             
-            st.write("### Datos Mensuales (Vista rápida)")
-            if not df['Fecha_DT'].isnull().all():
-                st.bar_chart(df.groupby(df['Fecha_DT'].dt.strftime('%m-%Y'))['Venta_Numerica'].sum())
-        
-    except Exception as e:
-        st.error(f"Error: {e}")
+            # Gráfico de apoyo visual para Marcas
+            if 'Marca' in df.columns:
+                st.
