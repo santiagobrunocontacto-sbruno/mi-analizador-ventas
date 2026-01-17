@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # CONFIGURACIÓN DE PÁGINA
-st.set_page_config(page_title="Tablero Comercial Integral", layout="wide")
+st.set_page_config(page_title="Tablero Comercial Corporativo", layout="wide")
+sns.set_theme(style="whitegrid")
 
 def auditoria_numerica(valor):
     if pd.isna(valor): return 0.0
@@ -29,43 +30,37 @@ def cargar_limpio(file):
     df['Cat_Clean'] = df['Categoria'].astype(str).str.upper().str.strip()
     return df
 
-# --- CARGA DE ARCHIVO ---
-if "archivo" not in st.session_state:
-    archivo = st.file_uploader("Cargar Base de Datos (CSV)", type=["csv"])
-    if archivo: st.session_state.archivo = archivo
+# --- CARGA DE DATOS ---
+archivo = st.file_uploader("Cargar Base de Datos (CSV)", type=["csv"])
 
-if "archivo" in st.session_state:
-    df = cargar_limpio(st.session_state.archivo)
+if archivo:
+    df = cargar_limpio(archivo)
     
     # ==========================================
     # 1. RESUMEN EJECUTIVO GLOBAL
     # ==========================================
-    v_total = df['Venta_N'].sum()
-    c_total = df['Costo_N'].sum()
-    renta_total = ((v_total - c_total) / v_total * 100) if v_total != 0 else 0
+    v_total_global = df['Venta_N'].sum()
+    c_total_global = df['Costo_N'].sum()
+    renta_global = ((v_total_global - c_total_global) / v_total_global * 100) if v_total_global != 0 else 0
     
-    st.header("1. Resumen Ejecutivo Global")
-    st.markdown(f"### VENTA TOTAL: **$ {v_total:,.0f}**")
+    st.title("🏛️ Informe de Gestión Comercial")
+    st.markdown(f"### VENTA TOTAL COMPAÑÍA: **$ {v_total_global:,.0f}**")
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("MARGEN RTA %", f"{renta_total:.2f} %")
+    c1.metric("MARGEN RTA %", f"{renta_global:.2f} %")
     c2.metric("CLIENTES ÚNICOS", f"{df['Razón social'].nunique():,}")
     c3.metric("BULTOS TOTALES", f"{df['Cantidad_N'].sum():,}")
 
-    # INDICADORES POR MARCA CON GRÁFICO
+    # Marcas Foco Global
     st.subheader("📊 Facturación por Marca Foco")
     foco = ['SMART', 'X-VIEW', 'TABLET', 'CLOUD', 'LEVEL', 'MICROCASE', 'TERRA']
-    
-    vtas_foco = []
-    labels_foco = []
+    vtas_foco, labels_foco = [], []
     cols_f = st.columns(len(foco))
     for i, m in enumerate(foco):
         m_total = df[df['Marca_Clean'].str.contains(m, na=False)]['Venta_N'].sum()
         vtas_foco.append(m_total)
         labels_foco.append(m)
-        with cols_f[i]:
-            st.markdown(f"**{m}**")
-            st.markdown(f"<span style='color:#0077B6; font-weight:bold'>$ {m_total:,.0f}</span>", unsafe_allow_html=True)
+        cols_f[i].markdown(f"**{m}**\n\n$ {m_total:,.0f}")
 
     fig_b, ax_b = plt.subplots(figsize=(10, 3))
     sns.barplot(x=labels_foco, y=vtas_foco, palette="Blues_r", ax=ax_b)
@@ -75,65 +70,77 @@ if "archivo" in st.session_state:
     st.divider()
 
     # ==========================================
-    # 2. DASHBOARD VENDEDOR: PABLO LOPEZ
+    # 2. SECCIÓN MULTI-VENDEDOR
     # ==========================================
-    vendedor_fijo = "PABLO LOPEZ"
-    df_v = df[df['Vendedor_Clean'].str.contains(vendedor_fijo, na=False)].copy()
+    st.header("👤 Análisis Detallado por Vendedor")
     
-    if not df_v.empty:
-        v_v = df_v['Venta_N'].sum()
-        r_v = ((v_v - df_v['Costo_N'].sum()) / v_v * 100) if v_v != 0 else 0
-        
-        st.markdown(f"""
-        <div style="background-color:#002147; padding:20px; border-radius:10px; color:white; display:flex; justify-content:space-between; align-items:center">
-            <span style="font-size:24px; font-weight:bold">DESEMPEÑO: {vendedor_fijo}</span>
-            <span style="font-size:28px">$ {v_v:,.0f}</span>
-            <span style="font-size:20px">RENTA: {r_v:.2f}%</span>
-        </div>""", unsafe_allow_html=True)
+    vendedores_objetivo = [
+        "PABLO LOPEZ", "WALTER ABBAS", "FRANCISCO TEDIN", 
+        "OSMAR GRIGERA", "ALEJANDRO CHALIN", "FRANCO ABALLAY", 
+        "HORACIO GUSTAVO PÉREZ KOHUT", "LUIS RITUCCI", 
+        "NICOLAS PACCE", "NATALIA MONFORT"
+    ]
 
-        col_l, col_r = st.columns([1, 1.2])
+    for vend in vendedores_objetivo:
+        df_v = df[df['Vendedor_Clean'].str.contains(vend, na=False)].copy()
         
-        with col_l:
-            st.subheader("Venta por Marca")
-            m_v = df_v.groupby('Marca_Clean')['Venta_N'].sum().nlargest(6)
-            fig_p, ax_p = plt.subplots()
-            ax_p.pie(m_v, labels=m_v.index, autopct=lambda p: f'{p:.1f}%', startangle=90, colors=sns.color_palette("viridis"))
-            st.pyplot(fig_p)
+        if not df_v.empty:
+            v_v = df_v['Venta_N'].sum()
+            c_v = df_v['Costo_N'].sum()
+            r_v = ((v_v - c_v) / v_v * 100) if v_v != 0 else 0
+            
+            with st.expander(f"📊 DASHBOARD: {vend}", expanded=(vend == "PABLO LOPEZ")):
+                # Encabezado Azul Estilo Power BI
+                st.markdown(f"""
+                <div style="background-color:#002147; padding:20px; border-radius:10px; color:white; display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
+                    <span style="font-size:22px; font-weight:bold">{vend}</span>
+                    <span style="font-size:26px; font-weight:bold">$ {v_v:,.0f}</span>
+                    <span style="font-size:18px">RENTA: {r_v:.2f}%</span>
+                </div>""", unsafe_allow_html=True)
 
-        with col_r:
-            st.subheader("Ranking Categorías")
-            rank_cat = df_v.groupby('Cat_Clean').agg({'Venta_N': 'sum', 'Cantidad_N': 'sum'}).sort_values('Venta_N', ascending=False).head(10)
-            rank_cat.columns = ['Venta', 'Cantidad']
-            st.table(rank_cat.style.format({'Venta': '$ {:,.0f}', 'Cantidad': '{:,}'}))
+                col_l, col_r = st.columns([1, 1.2])
+                
+                with col_l:
+                    st.subheader("Venta por Marca")
+                    m_v = df_v.groupby('Marca_Clean')['Venta_N'].sum().nlargest(6)
+                    fig_p, ax_p = plt.subplots()
+                    ax_p.pie(m_v, labels=m_v.index, autopct=lambda p: f'{p:.1f}%', startangle=90, colors=sns.color_palette("viridis"))
+                    st.pyplot(fig_p)
 
-        # ==========================================
-        # 3. MATRIZ DE CLIENTES (MIX DE MARCAS)
-        # ==========================================
-        st.subheader("🏛️ Matriz Estratégica: Participación y Mix por Cliente")
-        
-        # 1. Base: Venta por cliente y su peso sobre el total del vendedor
-        matriz = df_v.groupby('Razón social').agg({'Venta_N': 'sum'}).reset_index()
-        matriz['% Participación'] = (matriz['Venta_N'] / v_v * 100)
-        
-        # 2. Mix de marcas REAL (Cuanto del total del cliente es cada marca)
-        marcas_mix = {'SMART': 'SMART TEK %', 'X-VIEW': 'X-VIEW %', 'TABLET': 'TABLETS %', 'LEVEL': 'LEVEL UP %', 'CLOUD': 'CLOUD %'}
-        
-        for clave, nombre_col in marcas_mix.items():
-            # Sumamos la venta de esa marca para cada cliente
-            vta_m_c = df_v[df_v['Marca_Clean'].str.contains(clave, na=False)].groupby('Razón social')['Venta_N'].sum()
-            matriz[nombre_col] = matriz['Razón social'].map(vta_m_c).fillna(0)
-            # Calculamos %: (Venta Marca / Venta TOTAL del Cliente)
-            matriz[nombre_col] = (matriz[nombre_col] / matriz['Venta_N']) * 100
-        
-        # Formato de alerta para clientes > 10%
-        def highlight_concentracion(s):
-            return ['background-color: #ffcccc' if (s.name == '% Participación' and v > 10) else '' for v in s]
+                with col_r:
+                    st.subheader("Ranking Categorías")
+                    rank_cat = df_v.groupby('Cat_Clean').agg({'Venta_N': 'sum', 'Cantidad_N': 'sum'}).sort_values('Venta_N', ascending=False).head(10)
+                    rank_cat.columns = ['Venta', 'Cantidad']
+                    st.table(rank_cat.style.format({'Venta': '$ {:,.0f}', 'Cantidad': '{:,}'}))
 
-        st.dataframe(
-            matriz.sort_values('Venta_N', ascending=False).style.format({
-                'Venta_N': '$ {:,.0f}', '% Participación': '{:.2f}%',
-                'SMART TEK %': '{:.1f}%', 'X-VIEW %': '{:.1f}%', 'TABLETS %': '{:.1f}%', 
-                'LEVEL UP %': '{:.1f}%', 'CLOUD %': '{:.1f}%'
-            }).apply(highlight_concentracion, axis=1),
-            use_container_width=True
-        )
+                # Matriz Estratégica con Mix de Marcas Corregido
+                st.subheader("🏛️ Matriz de Clientes y Mix de Marcas")
+                
+                matriz = df_v.groupby('Razón social').agg({'Venta_N': 'sum'}).reset_index()
+                matriz['% Participación'] = (matriz['Venta_N'] / v_v * 100)
+                
+                # Cálculo de Mix: ¿Qué % del total del cliente es cada marca foco?
+                for clave_m in ['SMART', 'X-VIEW', 'TABLET', 'LEVEL', 'CLOUD', 'MICROCASE']:
+                    col_name = f"{clave_m} %"
+                    # Sumamos venta de esa marca para cada cliente de este vendedor
+                    vta_marca_cli = df_v[df_v['Marca_Clean'].str.contains(clave_m, na=False)].groupby('Razón social')['Venta_N'].sum()
+                    matriz[col_name] = matriz['Razón social'].map(vta_marca_cli).fillna(0)
+                    matriz[col_name] = (matriz[col_name] / matriz['Venta_N']) * 100
+
+                def highlight_10(s):
+                    return ['background-color: #ffcccc' if (s.name == '% Participación' and v > 10) else '' for v in s]
+
+                st.dataframe(
+                    matriz.sort_values('Venta_N', ascending=False).style.format({
+                        'Venta_N': '$ {:,.0f}', '% Participación': '{:.2f}%',
+                        'SMART %': '{:.1f}%', 'X-VIEW %': '{:.1f}%', 'TABLET %': '{:.1f}%', 
+                        'LEVEL %': '{:.1f}%', 'CLOUD %': '{:.1f}%', 'MICROCASE %': '{:.1f}%'
+                    }).apply(highlight_10, axis=1),
+                    use_container_width=True
+                )
+                st.divider()
+        else:
+            st.warning(f"No se encontraron datos para el vendedor: {vend}")
+
+else:
+    st.info("Por favor, cargue el archivo CSV para generar el reporte.")
