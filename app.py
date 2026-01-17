@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-import traceback
+import time
 
 st.set_page_config(page_title="Auditor Pro", layout="wide")
 st.title("📊 Auditoría Comercial Inteligente")
@@ -15,26 +15,10 @@ if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
         
-        # --- NUEVO: DETECTOR AUTOMÁTICO DE MODELO ---
-        # Listamos los modelos que tu API Key tiene permitidos
-        modelos_disponibles = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        # --- SELECCIÓN DE MODELO MÁS LIVIANO (FLASH) ---
+        # El modelo 'flash' es el mejor para presupuestos gratuitos/bajos
+        modelo_nombre = 'models/gemini-1.5-flash'
         
-        # Elegimos el mejor disponible: preferimos flash, si no pro, si no el primero que haya
-        modelo_a_usar = ""
-        for m in modelos_disponibles:
-            if "gemini-1.5-flash" in m:
-                modelo_a_usar = m
-                break
-        if not modelo_a_usar:
-            for m in modelos_disponibles:
-                if "gemini-pro" in m:
-                    modelo_a_usar = m
-                    break
-        if not modelo_a_usar:
-            modelo_a_usar = modelos_disponibles[0]
-            
-        st.sidebar.success(f"Usando modelo: {modelo_a_usar}")
-
         # --- PROCESAMIENTO DE DATOS ---
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
         df.columns = df.columns.str.strip()
@@ -53,10 +37,10 @@ if api_key and uploaded_file:
             df['Venta_Num'] = pd.to_numeric(df[col_venta], errors='coerce').fillna(0)
             total_facturado = df['Venta_Num'].sum()
             
-            # Resúmenes para la IA
-            res_marcas = df.groupby(col_marca)['Venta_Num'].sum().nlargest(15).to_dict() if col_marca else {}
-            res_vend = df.groupby(col_vendedor)['Venta_Num'].sum().nlargest(15).to_dict() if col_vendedor else {}
-            res_cli = df.groupby(col_cliente)['Venta_Num'].sum().nlargest(15).to_dict() if col_cliente else {}
+            # Resúmenes (Limitamos a 10 para ahorrar cuota)
+            res_marcas = df.groupby(col_marca)['Venta_Num'].sum().nlargest(10).to_dict() if col_marca else {}
+            res_vend = df.groupby(col_vendedor)['Venta_Num'].sum().nlargest(10).to_dict() if col_vendedor else {}
+            res_cli = df.groupby(col_cliente)['Venta_Num'].sum().nlargest(10).to_dict() if col_cliente else {}
 
             t1, t2 = st.tabs(["📉 Tablero de Control", "🤖 Consultor IA"])
             
@@ -75,28 +59,23 @@ if api_key and uploaded_file:
                 pregunta = st.text_input("Hacé tu pregunta:")
                 
                 if pregunta:
-                    # Usamos el modelo que detectamos automáticamente arriba
-                    model = genai.GenerativeModel(modelo_a_usar)
+                    try:
+                        model = genai.GenerativeModel(modelo_nombre)
+                        contexto = f"Total: {total_facturado}. Marcas: {res_marcas}. Vendedores: {res_vend}. Clientes: {res_cli}. Pregunta: {pregunta}"
+                        
+                        with st.spinner("La IA está analizando..."):
+                            response = model.generate_content(contexto)
+                            st.info(response.text)
                     
-                    contexto = f"""
-                    Datos resumidos:
-                    - Total Facturado: {total_facturado}
-                    - Top Marcas: {res_marcas}
-                    - Top Vendedores: {res_vend}
-                    - Top Clientes: {res_cli}
-                    
-                    Pregunta: {pregunta}
-                    Responde de forma ejecutiva y precisa.
-                    """
-                    
-                    with st.spinner("Analizando con la IA..."):
-                        response = model.generate_content(contexto)
-                        st.info(response.text)
+                    except Exception as e:
+                        if "429" in str(e):
+                            st.warning("⚠️ Agotamos la cuota gratuita de este minuto. Por favor, esperá 30 segundos y volvé a preguntar.")
+                        else:
+                            st.error(f"Hubo un problema con la IA: {e}")
         else:
             st.error("No se encontró la columna 'Venta'.")
 
     except Exception as e:
-        st.error("🚨 Error detectado:")
-        st.code(traceback.format_exc())
+        st.error(f"Error al cargar el archivo: {e}")
 else:
     st.info("👋 Esperando API Key y archivo...")
