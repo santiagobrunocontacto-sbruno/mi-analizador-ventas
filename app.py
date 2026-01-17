@@ -2,100 +2,126 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-# CONFIGURACIÓN SIMPLE
-st.set_page_config(page_title="Tablero Comercial", layout="wide")
-st.title("📊 Tablero de Comando Comercial")
+# CONFIGURACIÓN DE PÁGINA
+st.set_page_config(page_title="Gerencia Comercial AI", layout="wide")
+st.title("📊 Tablero de Comando & Consultor")
 
 # BARRA LATERAL
 with st.sidebar:
-    api_key = st.text_input("Tu Google API Key:", type="password")
-    uploaded_file = st.file_uploader("Subí el archivo 'fac limpia.csv'", type=["csv"])
+    api_key = st.text_input("API Key de Google:", type="password")
+    uploaded_file = st.file_uploader("Subí tu archivo CSV", type=["csv"])
 
 # LÓGICA PRINCIPAL
 if api_key and uploaded_file:
     try:
         genai.configure(api_key=api_key)
         
-        # 1. LEER ARCHIVO (Detectando punto y coma)
+        # 1. CARGA DE DATOS (Detectando separador y limpiando)
         df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin-1')
-        
-        # 2. LIMPIAR COLUMNAS (Quitar espacios invisibles)
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip() # Limpiar espacios en nombres de columnas
         
         if 'Venta' in df.columns:
-            # 3. LIMPIEZA DE DATOS
-            # Forzamos conversión a número, los errores se vuelven 0
+            # 2. PROCESAMIENTO MATEMÁTICO (La base sólida)
             df['Venta_Real'] = pd.to_numeric(df['Venta'], errors='coerce').fillna(0)
             
-            # Convertimos fechas si existen
+            # Procesar Fechas
             if 'Fecha de emisión' in df.columns:
                 df['Fecha_DT'] = pd.to_datetime(df['Fecha de emisión'], dayfirst=True, errors='coerce')
                 df['Mes'] = df['Fecha_DT'].dt.strftime('%Y-%m')
-
-            # 4. CÁLCULO DE KPIS (La "Verdad" matemática)
-            total_facturado = df['Venta_Real'].sum()
-            cant_operaciones = len(df)
-            ticket_promedio = total_facturado / cant_operaciones if cant_operaciones > 0 else 0
             
-            # Rankings (Diccionarios para la IA)
-            top_marcas = df.groupby('Marca')['Venta_Real'].sum().nlargest(10).to_dict() if 'Marca' in df.columns else {}
-            top_categorias = df.groupby('Categoria')['Venta_Real'].sum().nlargest(10).to_dict() if 'Categoria' in df.columns else {}
-            ventas_por_mes = df.groupby('Mes')['Venta_Real'].sum().to_dict() if 'Mes' in df.columns else {}
+            # 3. CÁLCULO DE TODOS LOS RANKINGS (El "Cerebro Comercial")
+            # Aquí preparamos los datos para que la IA sepa DE TODO
+            
+            total_facturado = df['Venta_Real'].sum()
+            
+            # Ranking VENDEDORES (Top 20 para tener buen contexto)
+            ranking_vendedores = {}
+            if 'Nombre Vendedor' in df.columns:
+                ranking_vendedores = df.groupby('Nombre Vendedor')['Venta_Real'].sum().nlargest(20).to_dict()
+            
+            # Ranking CLIENTES (Top 20)
+            ranking_clientes = {}
+            if 'Razón social' in df.columns:
+                ranking_clientes = df.groupby('Razón social')['Venta_Real'].sum().nlargest(20).to_dict()
 
-            # 5. MOSTRAR RESULTADOS EN PESTAÑAS
-            tab1, tab2 = st.tabs(["📈 Panel Visual", "🤖 Consultor IA"])
+            # Ranking MARCAS
+            ranking_marcas = {}
+            if 'Marca' in df.columns:
+                ranking_marcas = df.groupby('Marca')['Venta_Real'].sum().nlargest(20).to_dict()
+
+            # Evolución MENSUAL
+            ventas_mensuales = {}
+            if 'Mes' in df.columns:
+                ventas_mensuales = df.groupby('Mes')['Venta_Real'].sum().to_dict()
+
+            # --- INTERFAZ VISUAL ---
+            
+            # Pestañas para organizar
+            tab1, tab2 = st.tabs(["📈 Tablero", "💬 Chat con Gerente IA"])
             
             with tab1:
-                # Métricas Grandes
+                # Métricas Clave
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Facturación Total", f"${total_facturado:,.2f}")
-                col2.metric("Tickets", f"{cant_operaciones:,}")
-                col3.metric("Ticket Promedio", f"${ticket_promedio:,.2f}")
+                col1.metric("Total Facturado", f"${total_facturado:,.2f}")
+                col2.metric("Operaciones", f"{len(df):,}")
+                col3.metric("Ticket Promedio", f"${total_facturado/len(df):,.2f}")
                 
-                st.write("---")
+                st.markdown("---")
                 
-                # Gráficos Nativos (Simples pero no fallan)
-                c_graph1, c_graph2 = st.columns(2)
-                with c_graph1:
-                    if top_marcas:
-                        st.subheader("Top 10 Marcas ($)")
-                        st.bar_chart(pd.Series(top_marcas))
-                
-                with c_graph2:
-                    if ventas_por_mes:
-                        st.subheader("Evolución Mensual ($)")
-                        st.line_chart(pd.Series(ventas_por_mes))
+                # Gráficos de apoyo
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.subheader("Top Vendedores")
+                    if ranking_vendedores:
+                        st.bar_chart(pd.Series(ranking_vendedores))
+                with c2:
+                    st.subheader("Evolución Mensual")
+                    if ventas_mensuales:
+                        st.line_chart(pd.Series(ventas_mensuales))
 
             with tab2:
-                st.info("Preguntá sobre Marcas, Categorías, Meses o Vendedores.")
-                pregunta = st.text_input("Escribí tu consulta aquí:")
+                st.header("Consultor de Negocios Inteligente")
+                st.info("Ahora la IA conoce a tus vendedores, clientes y marcas principales.")
+                
+                pregunta = st.text_input("Hacé tu pregunta (Ej: ¿Quién es el mejor vendedor? ¿Qué cliente compró más?)")
                 
                 if pregunta:
-                    # Preparamos al modelo
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     
-                    # Le pasamos los DATOS YA CALCULADOS
-                    prompt = f"""
-                    Actuá como Gerente Comercial. Usá estos datos VERIFICADOS:
+                    # EL SECRETO: Le pasamos TODO el contexto calculado
+                    prompt_contexto = f"""
+                    Actuá como un Gerente Comercial experto. Responde basándote EXCLUSIVAMENTE en estos datos procesados:
+
+                    1. FACTURACIÓN TOTAL: ${total_facturado:,.2f}
                     
-                    - Facturación Total: ${total_facturado:,.2f}
-                    - Ranking Marcas: {top_marcas}
-                    - Ranking Categorías: {top_categorias}
-                    - Evolución Mensual: {ventas_por_mes}
-                    
-                    Pregunta del usuario: {pregunta}
-                    
-                    Respondé de forma directa basándote solo en estos números.
+                    2. EVOLUCIÓN MENSUAL (Mes: Venta):
+                    {ventas_mensuales}
+
+                    3. TOP VENDEDORES (Nombre: Venta):
+                    {ranking_vendedores}
+
+                    4. TOP CLIENTES (Razón Social: Venta):
+                    {ranking_clientes}
+
+                    5. TOP MARCAS (Marca: Venta):
+                    {ranking_marcas}
+
+                    PREGUNTA DEL USUARIO: {pregunta}
+
+                    INSTRUCCIONES:
+                    - Si la respuesta está en los datos de arriba, sé preciso y da el número.
+                    - Si te preguntan por un vendedor o cliente que NO está en el Top 20, aclará: "No figura en el Top 20 de mayores ventas".
+                    - Responde de forma profesional y ejecutiva.
                     """
                     
-                    with st.spinner("Analizando datos..."):
-                        res = model.generate_content(prompt)
-                        st.success(res.text)
+                    with st.spinner("Analizando la base de datos..."):
+                        response = model.generate_content(prompt_contexto)
+                        st.markdown(response.text)
 
         else:
-            st.error("No encontré la columna 'Venta'. Revisá el archivo.")
+            st.error("Error: No se encontró la columna 'Venta'. Verificá el archivo.")
 
     except Exception as e:
         st.error(f"Error técnico: {e}")
 else:
-    st.info("Esperando API Key y Archivo CSV...")
+    st.info("Por favor, ingresá la API Key y cargá el archivo.")
