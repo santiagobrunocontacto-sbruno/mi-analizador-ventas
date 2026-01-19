@@ -3,4 +3,4 @@ pandas
 matplotlib
 seaborn
 fpdf2
-google-generativeai
+google-generativeai>=0.7.0
