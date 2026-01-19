@@ -64,7 +64,7 @@ if archivo:
 
         st.divider()
 
-        # 2. SECCIÓN VENDEDORES (DISEÑO RECUPERADO: BARRA + 2 TABLAS)
+        # 2. SECCIÓN VENDEDORES (DISEÑO BLINDADO: BARRA + TORTA + TABLA CATEGORIAS + MATRIZ)
         vendedores = ["PABLO LOPEZ", "WALTER ABBAS", "FRANCISCO TEDIN", "OSMAR GRIGERA", "ALEJANDRO CHALIN", "FRANCO ABALLAY", "HORACIO GUSTAVO PÉREZ KOHUT", "LUIS RITUCCI", "NICOLAS PACCE", "NATALIA MONFORT"]
 
         for vend in vendedores:
@@ -75,7 +75,7 @@ if archivo:
                 cant_clientes = df_v['Razón social'].nunique()
                 
                 with st.expander(f"DASHBOARD: {vend}", expanded=(vend == "PABLO LOPEZ")):
-                    # BARRA AZUL
+                    # BARRA AZUL DE TOTALES
                     st.markdown(f"""
                     <div style="background-color:#002147; padding:20px; border-radius:10px; color:white; display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
                         <span style="font-size:24px; font-weight:bold">{vend}</span>
@@ -84,7 +84,7 @@ if archivo:
                         <div style="text-align:right"><span style="font-size:14px">RENTA</span><br><span style="font-size:20px; font-weight:bold">{r_v:.2f}%</span></div>
                     </div>""", unsafe_allow_html=True)
                     
-                    # COLUMNAS: IZQ (GRAFICO) | DER (TABLA CATEGORIAS - RECUPERADA)
+                    # COLUMNAS: IZQ (GRAFICO TORTA) | DER (TABLA CATEGORIAS)
                     col_l, col_r = st.columns([1, 1.2])
                     
                     with col_l:
@@ -96,11 +96,11 @@ if archivo:
                     
                     with col_r:
                         st.subheader("Ranking Categorías")
-                        # RECUPERADA: Tabla de categorías que faltaba
+                        # Tabla de categorías recuperada
                         rank_cat = df_v.groupby('Cat_Clean').agg({'Venta_N': 'sum', 'Cantidad_N': 'sum'}).sort_values('Venta_N', ascending=False).head(10)
                         st.dataframe(rank_cat.style.format({'Venta_N': '$ {:,.0f}', 'Cantidad_N': '{:,}'}), use_container_width=True)
 
-                    # MATRIZ INFERIOR (RECUPERADA CON ALERTAS)
+                    # MATRIZ INFERIOR (CLIENTES)
                     st.subheader("Matriz de Clientes y Mix de Marcas")
                     matriz = df_v.groupby('Razón social').agg({'Venta_N': 'sum'}).reset_index()
                     matriz['% Part.'] = (matriz['Venta_N'] / v_v * 100)
@@ -109,7 +109,7 @@ if archivo:
                         vta_m_c = df_v[df_v['Marca_Clean'].str.contains(clave_m, na=False)].groupby('Razón social')['Venta_N'].sum()
                         matriz[f"{clave_m} %"] = (matriz['Razón social'].map(vta_m_c).fillna(0) / matriz['Venta_N']) * 100
 
-                    # Función de estilo para pintar rojo si > 10%
+                    # Estilo Alerta Roja (>10%)
                     def highlight_10(s):
                         return ['background-color: #ffcccc' if (s.name == '% Part.' and v > 10) else '' for v in s]
 
@@ -123,33 +123,41 @@ if archivo:
 
     with tab_ia:
         st.header("🤖 Consultor Estratégico")
-        st.info("Escribe tu API Key y haz preguntas sobre tus ventas.")
+        st.info("Escribe tu API Key. El sistema buscará automáticamente el mejor modelo disponible.")
         
         key = st.text_input("Gemini API Key:", type="password")
         pregunta = st.text_input("Pregunta (ej: ¿Qué vendedor tiene el mejor margen?):")
         
         if pregunta and key:
-            try:
-                genai.configure(api_key=key)
-                # CAMBIO IMPORTANTE: Usamos 'gemini-pro' que es más estable
-                model = genai.GenerativeModel('gemini-pro')
-                
-                # Contexto mejorado
-                resumen = f"""
-                Total Venta Compañía: ${v_total:,.0f}.
-                Ranking Vendedores (Venta): {df.groupby('Vendedor_Clean')['Venta_N'].sum().sort_values(ascending=False).to_dict()}.
-                Ranking Vendedores (Rentabilidad %): {(df.groupby('Vendedor_Clean').apply(lambda x: (x['Venta_N'].sum() - x['Costo_N'].sum())/x['Venta_N'].sum()*100)).sort_values(ascending=False).to_dict()}.
-                """
-                prompt = f"Actúa como un analista de ventas experto. Basado en estos datos: {resumen}. Responde a la pregunta del usuario: {pregunta}. Sé breve y directo."
-                
-                with st.spinner("Analizando..."):
-                    response = model.generate_content(prompt)
-                    st.success("Respuesta:")
-                    st.write(response.text)
+            genai.configure(api_key=key)
             
-            except Exception as e:
-                st.error(f"Error de conexión con la IA: {e}")
-                st.caption("Verifica que la API Key sea correcta y tenga permisos habilitados.")
+            # --- CONTEXTO PARA LA IA ---
+            resumen = f"""
+            Total Venta Compañía: ${v_total:,.0f}.
+            Ranking Vendedores (Venta): {df.groupby('Vendedor_Clean')['Venta_N'].sum().sort_values(ascending=False).to_dict()}.
+            Ranking Vendedores (Rentabilidad %): {(df.groupby('Vendedor_Clean').apply(lambda x: (x['Venta_N'].sum() - x['Costo_N'].sum())/x['Venta_N'].sum()*100)).sort_values(ascending=False).to_dict()}.
+            """
+            prompt = f"Actúa como un analista de ventas experto. Basado en estos datos: {resumen}. Responde a la pregunta del usuario: {pregunta}. Sé breve y directo."
+            
+            # --- LÓGICA MULTI-MODELO (SOLUCIÓN AL ERROR 404) ---
+            modelos_a_probar = ['gemini-1.5-flash', 'gemini-1.0-pro', 'gemini-pro']
+            respuesta_exitosa = False
+            
+            with st.spinner("Analizando con IA..."):
+                for nombre_modelo in modelos_a_probar:
+                    try:
+                        model = genai.GenerativeModel(nombre_modelo)
+                        response = model.generate_content(prompt)
+                        st.success(f"Respuesta generada (Modelo usado: {nombre_modelo}):")
+                        st.write(response.text)
+                        respuesta_exitosa = True
+                        break # Si funciona, salimos del bucle
+                    except Exception as e:
+                        continue # Si falla, probamos el siguiente
+                
+                if not respuesta_exitosa:
+                    st.error("Error: No se pudo conectar con ningún modelo de IA. Verifica tu API Key.")
+                    st.caption("Detalle técnico: Todos los modelos (Flash, Pro, 1.0) devolvieron error.")
 
 else:
     st.info("Por favor, carga el archivo CSV.")
