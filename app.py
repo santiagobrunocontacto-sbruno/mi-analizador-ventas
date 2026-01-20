@@ -8,7 +8,7 @@ import google.generativeai as genai
 st.set_page_config(page_title="Tablero Comercial", layout="wide")
 sns.set_theme(style="whitegrid")
 
-# --- FUNCIONES DE LIMPIEZA ---
+# --- FUNCIONES DE LIMPIEZA (MANTENEMOS TU LÓGICA DE AUDITORÍA) ---
 def auditoria_numerica(valor):
     if pd.isna(valor): return 0.0
     s = str(valor).strip().replace('$', '').replace(' ', '')
@@ -41,7 +41,7 @@ if archivo:
     tab_reporte, tab_ia = st.tabs(["📊 Reporte Comercial", "🤖 Consultor IA"])
 
     with tab_reporte:
-        # 1. RESUMEN GLOBAL (INTOCABLE)
+        # 1. RESUMEN GLOBAL
         v_total = df['Venta_N'].sum()
         renta_g = ((v_total - df['Costo_N'].sum()) / v_total * 100) if v_total != 0 else 0
         
@@ -64,7 +64,7 @@ if archivo:
 
         st.divider()
 
-        # 2. SECCIÓN VENDEDORES (DISEÑO BLINDADO: BARRA + TORTA + TABLA CATEGORIAS + MATRIZ)
+        # 2. SECCIÓN VENDEDORES (DISEÑO BLINDADO)
         vendedores = ["PABLO LOPEZ", "WALTER ABBAS", "FRANCISCO TEDIN", "OSMAR GRIGERA", "ALEJANDRO CHALIN", "FRANCO ABALLAY", "HORACIO GUSTAVO PÉREZ KOHUT", "LUIS RITUCCI", "NICOLAS PACCE", "NATALIA MONFORT"]
 
         for vend in vendedores:
@@ -120,34 +120,50 @@ if archivo:
     with tab_ia:
         st.header("🤖 Consultor Estratégico")
         
-        # INPUT DE API KEY
-        key = st.text_input("Gemini API Key:", type="password")
-        pregunta = st.text_input("Pregunta (ej: ¿Qué vendedor tiene el mejor margen?):")
+        # INPUT DE API KEY CON KEY ÚNICO
+        key = st.text_input("Gemini API Key:", type="password", key="gemini_api_key")
+        pregunta = st.text_input("Haz una pregunta a tus datos:")
         
         if pregunta and key:
             try:
-                # CONFIGURACIÓN DIRECTA
+                # CONFIGURACIÓN DEL MODELO CON PARÁMETROS EXPLÍCITOS
                 genai.configure(api_key=key)
                 
-                # MODELO STANDARD ACTUAL (gemini-1.5-flash)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # Usamos una configuración de generación para mayor compatibilidad
+                model = genai.GenerativeModel(
+                    model_name='gemini-1.5-flash',
+                    generation_config={
+                        "temperature": 0.5,
+                        "top_p": 1,
+                        "top_k": 32,
+                        "max_output_tokens": 1024,
+                    }
+                )
                 
-                resumen = f"""
-                Total Venta: ${v_total:,.0f}.
-                Ranking Vendedores (Venta): {df.groupby('Vendedor_Clean')['Venta_N'].sum().sort_values(ascending=False).head(5).to_dict()}.
+                # Resumen compacto para la IA
+                top_vendedores = df.groupby('Vendedor_Clean')['Venta_N'].sum().nlargest(5).to_dict()
+                contexto = f"""
+                Resumen de ventas:
+                - Venta Total: ${v_total:,.0f}
+                - Margen General: {renta_g:.2f}%
+                - Top 5 Vendedores: {top_vendedores}
+                - Total Clientes: {df['Razón social'].nunique()}
                 """
-                prompt = f"Analiza estos datos de ventas: {resumen}. Pregunta del usuario: {pregunta}. Responde brevemente."
                 
-                with st.spinner("Consultando a la IA..."):
-                    response = model.generate_content(prompt)
-                    st.success("Respuesta:")
+                with st.spinner("Analizando información comercial..."):
+                    # Iniciamos chat para mayor estabilidad en la conexión
+                    chat = model.start_chat(history=[])
+                    full_prompt = f"{contexto}\n\nPregunta: {pregunta}\n\nResponde de forma ejecutiva y profesional."
+                    response = chat.send_message(full_prompt)
+                    
+                    st.success("Análisis de la IA:")
                     st.write(response.text)
             
             except Exception as e:
-                # AQUÍ VEREMOS EL ERROR REAL
-                st.error("Ocurrió un error de conexión.")
-                st.warning(f"Detalle técnico del error: {e}")
-                st.info("Nota: Si el error dice '404' o 'Not Found', asegúrate de haber actualizado el archivo requirements.txt en GitHub con: google-generativeai>=0.7.0")
+                st.error("Ocurrió un error al consultar la IA.")
+                # El mensaje de error técnico nos dirá si persiste el problema de versión
+                st.warning(f"Detalle técnico: {e}")
+                st.info("Nota: Si persiste el error 404, por favor asegúrate de haber guardado el requirements.txt en GitHub antes de probar.")
 
 else:
-    st.info("Por favor, carga el archivo CSV.")
+    st.info("Por favor, carga el archivo CSV para comenzar el análisis.")
